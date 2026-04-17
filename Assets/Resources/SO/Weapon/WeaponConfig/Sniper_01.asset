@@ -1,0 +1,42 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: afe76729506dbf741a434024c822772f, type: 3}
+  m_Name: Sniper_01
+  m_EditorClassIdentifier: 
+  id: 3
+  price: 1000
+  weapon: {fileID: 2502107427165944182, guid: 06f404deaf5364d469b3234639ed63b3, type: 3}
+  weaponType: 0
+  weaponName: Sniper_01
+  icon: {fileID: 21300000, guid: 2016cfcc650259f44b9b72bebe85a19a, type: 3}
+  characterAnimator: {fileID: 9100000, guid: 511341ec79f688d4da1d4ccca4a101ab, type: 2}
+  magazineCapacity: 5
+  damage_head: 202
+  damage_torso: 101
+  damage_legs: 85
+  shootSpeed: 1
+  zoom: 1
+  readyTime: 1.1
+  fireTime: 0.5
+  reloadTime: 3.1
+  isAuto: 0
+  isSniper: 1
+  hasAim: 1
+  hasAimFire: 0
+  hasBolt: 1
+  SingleReload: 1
+  fireAudio: {fileID: 8300000, guid: 4b1ecd8e68d8dae46b25d4010229a6e5, type: 3}
+  reloadAudio: {fileID: 0}
+  boltAudio: {fileID: 8300000, guid: cd28c0e1bc363e04e919c93ec2b98131, type: 3}
+  reloadOpenAudio: {fileID: 8300000, guid: aebbc98b5d4cb3f4da46b6b27ad7cf64, type: 3}
+  reloadInsertAudio: {fileID: 8300000, guid: e52a1268bdbb1b84c9a5384c83747214, type: 3}
+  reloadCloseAudio: {fileID: 8300000, guid: cd28c0e1bc363e04e919c93ec2b98131, type: 3}

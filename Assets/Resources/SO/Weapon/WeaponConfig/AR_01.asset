@@ -1,0 +1,42 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: afe76729506dbf741a434024c822772f, type: 3}
+  m_Name: AR_01
+  m_EditorClassIdentifier: 
+  id: 0
+  price: 500
+  weapon: {fileID: 6504799916373811180, guid: edee8828c0205c14597a1166bf0a0cb4, type: 3}
+  weaponType: 0
+  weaponName: AR_01
+  icon: {fileID: 21300000, guid: 027b0e55f4cd00345a0d84a8675b05c6, type: 3}
+  characterAnimator: {fileID: 9100000, guid: 6c9228fefec6da543a1c0cca52112600, type: 2}
+  magazineCapacity: 25
+  damage_head: 160
+  damage_torso: 40
+  damage_legs: 34
+  shootSpeed: 9.75
+  zoom: 1.5
+  readyTime: 0.7
+  fireTime: 0.05
+  reloadTime: 3.1
+  isAuto: 1
+  isSniper: 0
+  hasAim: 1
+  hasAimFire: 1
+  hasBolt: 0
+  SingleReload: 0
+  fireAudio: {fileID: 8300000, guid: cd03005c80312464fa34c381435c7abc, type: 3}
+  reloadAudio: {fileID: 8300000, guid: 909a84fef56c5d442b2486f55ca6f019, type: 3}
+  boltAudio: {fileID: 0}
+  reloadOpenAudio: {fileID: 0}
+  reloadInsertAudio: {fileID: 0}
+  reloadCloseAudio: {fileID: 0}
