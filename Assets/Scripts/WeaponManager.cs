@@ -99,25 +99,39 @@ public class WeaponManager : MonoBehaviour
             RaycastHit[] hits = Physics.RaycastAll(center, fireDirection, 100f, ~(1 << layer));
             Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
+            // 子弹最远落点（命中链结束后用于广播 PlayerFire 的 hitPoint）
             Vector3 hitPoint = center + fireDirection * 100f;
 
+            // 命中链处理：按距离顺序遍历
+            //  - 是自己的 BodyCollider → 跳过（不更新 hitPoint，子弹假装没被自己挡住）
+            //  - 是敌人的 BodyCollider → 扣血并停止（FPS 标准：子弹不穿透敌人）
+            //  - 其它（墙、地） → 落点定在该 hit，停止
             foreach (RaycastHit hit in hits)
             {
                 BodyCollider bodyCollider = hit.collider.GetComponent<BodyCollider>();
-                hitPoint = hit.point;
                 if (bodyCollider != null)
                 {
+                    // 跳过射手自己身上的 BodyCollider，不更新 hitPoint
                     if (bodyCollider.character.GetComponent<PlayerState>().playerName == playerName)
                         continue;
 
+                    // 命中敌人：结算伤害 + 通知被击中者播 hit indicator
                     int damage = 0;
                     if (bodyCollider.part == BodyPart.Head) damage = WeaponDic.instance.weaponDic[weaponId].damage_head;
                     if (bodyCollider.part == BodyPart.Torso) damage = WeaponDic.instance.weaponDic[weaponId].damage_torso;
                     if (bodyCollider.part == BodyPart.Legs) damage = WeaponDic.instance.weaponDic[weaponId].damage_legs;
                     bodyCollider.GetDamaged(playerName, damage, weaponId);
                     bodyCollider.character.GetComponent<PlayerController>().GetHit(transform.position);
+
+                    hitPoint = hit.point;
+                    break;        // FPS 默认：命中第一个敌人就停（不穿透）
                 }
-                else break;
+                else
+                {
+                    // 撞到墙 / 地等场景物：落点定在这里，停止
+                    hitPoint = hit.point;
+                    break;
+                }
             }
             var playerFire = new PlayerFire(state.playerName, hitPoint);
             NetworkManager.Broadcast(MessageType.Fire, playerFire);

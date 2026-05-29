@@ -30,6 +30,13 @@ public class PlayerController : MonoBehaviour
     private readonly float SPEED_CROUCH = 2;
     private readonly float GRAVITY = 9.8f;
 
+    // ============ 落地踉跄（必须与客户端 PlayerController 严格一致）============
+    private const float STAGGER_FALL_THRESHOLD = 4f;
+    private const float STAGGER_DURATION_PER_SPEED = 0.06f;
+    private const float STAGGER_DURATION_MAX = 0.6f;
+    private const float STAGGER_ACCELERATION = 8f;
+    private float staggerTimer = 0f;
+
     private readonly static float TICK_INTERVAL = NetworkManager.TICK_INTERVAL;
 
     private void Awake()
@@ -69,6 +76,7 @@ public class PlayerController : MonoBehaviour
         jump = false; 
         isCrouch = false; 
         isWalk = false; 
+        staggerTimer = 0f;       // 重生清空踉跄
     }
 
     // 服务端权威：限制单 tick 输入合理范围，防止异常客户端瞬移视角 / 加速移动
@@ -153,7 +161,13 @@ public class PlayerController : MonoBehaviour
         }
         else targetSpeed = 0;
 
-        int acceleration = isGrounded ? 50: 15;
+        // 加速度：地面正常 50，空中 15，踉跄期降到 STAGGER_ACCELERATION
+        // （与客户端 PlayerController 严格一致，避免触发回滚）
+        float acceleration;
+        if (isGrounded)
+            acceleration = staggerTimer > 0f ? STAGGER_ACCELERATION : 50f;
+        else
+            acceleration = 15f;
         speed = Mathf.MoveTowards(speed, targetSpeed, acceleration * TICK_INTERVAL);
         movement = Vector3.MoveTowards(movement, direction * targetSpeed, acceleration * TICK_INTERVAL);
 
@@ -167,18 +181,27 @@ public class PlayerController : MonoBehaviour
         if (characterController.isGrounded)
         {
             isGrounded = true;
-            velocity = -0.5f;
+            // 落地：根据下落速度触发踉跄（同客户端逻辑）
             if (isInAir)
             {
                 isInAir = false;
-                speed = 0;
+                float fallSpeed = -velocity;
+                if (fallSpeed > STAGGER_FALL_THRESHOLD)
+                {
+                    float over = fallSpeed - STAGGER_FALL_THRESHOLD;
+                    float duration = Mathf.Min(over * STAGGER_DURATION_PER_SPEED, STAGGER_DURATION_MAX);
+                    if (duration > staggerTimer) staggerTimer = duration;
+                }
             }
+            velocity = -0.5f;
         }
         else
         {
             isInAir = true;
             velocity -= GRAVITY * TICK_INTERVAL;
         }
+
+        if (staggerTimer > 0f) staggerTimer = Mathf.Max(0f, staggerTimer - TICK_INTERVAL);
 
         if (isCrouch) height = Mathf.MoveTowards(height, 1.2f, 4 * TICK_INTERVAL);
         else height = Mathf.MoveTowards(height, 1.6f, 4 * TICK_INTERVAL);
