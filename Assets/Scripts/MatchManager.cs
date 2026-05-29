@@ -9,10 +9,12 @@ public class MatchManager : MonoBehaviour
     // ============ 经济参数 ============
     /// <summary>开局给每个玩家的初始金币。</summary>
     public const int INITIAL_GOLD = 300;
-    /// <summary>每回合开始时固定发的金币（不含击杀奖励）。</summary>
+    /// <summary>每回合开始时固定发的金币（不含击杀/助攻奖励）。</summary>
     public const int ROUND_INCOME = 300;
     /// <summary>击杀一个敌人累计的奖励，下回合发放。</summary>
-    public const int KILL_REWARD = 100;
+    public const int KILL_REWARD = 200;
+    /// <summary>助攻奖励：对死者造成过伤害但不是最后一击。</summary>
+    public const int ASSIST_REWARD = 100;
 
     private bool gameStart = false;
     private readonly int ROUND_TO_WIN = 10;
