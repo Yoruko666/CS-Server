@@ -1,5 +1,3 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
 public class PlayerState : MonoBehaviour
@@ -37,11 +35,11 @@ public class PlayerState : MonoBehaviour
             isDie = true;
             MatchManager.instance.aliveNum[id < 3 ? 0 : 1]--;
 
-            GameObject player = NetworkManager.playerPool[this.playerName];
             NetworkManager.playerDieList.Add(this.playerName);
             PlayerKill playerKill = new(playerName, this.playerName, shotHead, weaponId);
             NetworkManager.Broadcast(MessageType.Kill, playerKill);
-            player.SetActive(false);
+            if (NetworkManager.playerPool.TryGetValue(this.playerName, out var player) && player != null)
+                player.SetActive(false);
         }
     }
 

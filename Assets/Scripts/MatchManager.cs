@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -109,7 +108,7 @@ public class MatchManager : MonoBehaviour
         aliveNum[1] = NetworkManager.playerNum / 2;
         foreach (string playerName in NetworkManager.playerStateInfos.Keys)
         {
-            GameObject player = NetworkManager.playerPool[playerName];
+            if (!NetworkManager.playerPool.TryGetValue(playerName, out var player) || player == null) continue;
             player.SetActive(true);
             player.GetComponent<PlayerController>().Reborn();
             player.GetComponent<WeaponManager>().Initialize();

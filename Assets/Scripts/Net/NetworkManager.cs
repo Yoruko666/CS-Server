@@ -32,6 +32,10 @@ public class NetworkManager : MonoBehaviour
     public static HashSet<string> playerReadyList = new();
     public static HashSet<string> playerDieList = new();
 
+    // 接收线程的 running flag：OnApplicationQuit 时翻为 false，
+    // 让 ReceiveMessage 线程能干净退出，而不是依赖 Receive 抛 ObjectDisposedException 跳出。
+    private static volatile bool running = true;
+
     // 消息处理器注册表
     private Dictionary<MessageType, Action<string>> handlers;
 
@@ -125,7 +129,7 @@ public class NetworkManager : MonoBehaviour
     {
         foreach (string playerName in playerStateInfos.Keys)
         {
-            GameObject player = playerPool[playerName];
+            if (!playerPool.TryGetValue(playerName, out var player) || player == null) continue;
             player.GetComponent<PlayerState>().UpdateStateInfo(playerStateInfos[playerName]);
             if (playerDieList.Contains(playerName)) continue;
 
@@ -212,13 +216,14 @@ public class NetworkManager : MonoBehaviour
 
     private void OnApplicationQuit()
     {
-        udpServer.Close();
+        running = false;
+        udpServer?.Close();
     }
 
     private void ReceiveMessage()
     {
         IPEndPoint remote = new(IPAddress.Any, 0);
-        while (true)
+        while (running)
         {
             try
             {
