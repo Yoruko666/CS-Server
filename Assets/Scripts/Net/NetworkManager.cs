@@ -23,9 +23,7 @@ public class NetworkManager : MonoBehaviour
     public static bool serverReady = false;
 
     public static ConcurrentDictionary<string, IPEndPoint> clientsDic = new();
-    private static readonly object clientsLock = new();
 
-    private static HashSet<IPEndPoint> clients = new();
     private static ConcurrentQueue<(MessageType, string)> messageList = new();
     public static ConcurrentDictionary<string, GameObject> playerPool = new();
     public static ConcurrentDictionary<int, GameObject> idPlayerPool = new();
@@ -33,6 +31,28 @@ public class NetworkManager : MonoBehaviour
 
     public static HashSet<string> playerReadyList = new();
     public static HashSet<string> playerDieList = new();
+
+    // 消息处理器注册表
+    private Dictionary<MessageType, Action<string>> handlers;
+
+    private void Awake()
+    {
+        RegisterHandlers();
+    }
+
+    private void RegisterHandlers()
+    {
+        handlers = new Dictionary<MessageType, Action<string>>
+        {
+            { MessageType.Ready,           OnReady          },
+            { MessageType.InputInfo,       OnInputInfo      },
+            { MessageType.Fire,            OnFire           },
+            { MessageType.Reload,          OnReload         },
+            { MessageType.SwitchWeapon,    OnSwitchWeapon   },
+            { MessageType.PurchaseWeapon,  OnPurchaseWeapon },
+            { MessageType.PingPong,        OnPingPong       },
+        };
+    }
 
     void Start()
     {
@@ -81,88 +101,113 @@ public class NetworkManager : MonoBehaviour
     {
         while (messageList.TryDequeue(out var data))
         {
-            string msg = data.Item2;
-            GameObject player;
-            switch (data.Item1)
+            if (handlers.TryGetValue(data.Item1, out var handler))
             {
-                case MessageType.Ready:
-                    var playerReady = JsonConvert.DeserializeObject<PlayerReady>(msg);
-                    if(!playerReadyList.Contains(playerReady.playerName))
-                        playerReadyList.Add(playerReady.playerName);
-                    break;
-
-                case MessageType.InputInfo:
-                    var inputInfo = JsonConvert.DeserializeObject<PlayerInputInfo>(msg);
-                    player = playerPool[inputInfo.playerName];
-                    if (!playerDieList.Contains(inputInfo.playerName))
-                        player.GetComponent<PlayerController>().ApplyInput(inputInfo);
-                    break;
-
-                case MessageType.Fire:
-                    var playerFire = JsonConvert.DeserializeObject<PlayerFire>(msg);
-                    if(!playerDieList.Contains(playerFire.playerName))
-                        playerPool[playerFire.playerName].GetComponent<WeaponManager>().Fire(playerFire.seed);
-                    break;
-
-                case MessageType.Reload:
-                    var playerReload = JsonConvert.DeserializeObject<PlayerReload>(msg);
-                    if (!playerDieList.Contains(playerReload.playerName))
-                        playerPool[playerReload.playerName].GetComponent<WeaponManager>().StartReload();
-                    Broadcast(MessageType.Reload, playerReload);
-                    break;
-
-                case MessageType.SwitchWeapon:
-                    var playerSwitchWeapon = JsonConvert.DeserializeObject<PlayerSwitchWeapon>(msg);
-                    playerPool[playerSwitchWeapon.playerName].GetComponent<WeaponManager>().SwitchWeapon(playerSwitchWeapon.index);
-                    Broadcast(MessageType.SwitchWeapon, playerSwitchWeapon);
-                    break;
-
-                case MessageType.PurchaseWeapon:
-                    if(MatchManager.instance.currentRoundState != RoundState.Preparation) break;
-                    var playerPurchaseWeapon = JsonConvert.DeserializeObject<PlayerPurchaseWeapon>(msg);
-                    PlayerStateInfo playerStateInfo = playerStateInfos[playerPurchaseWeapon.playerName];
-                    WeaponConfig weaponConfig = WeaponDic.instance.weaponDic[playerPurchaseWeapon.id];
-                    string playerInfoName = playerPurchaseWeapon.playerName;
-                    if (playerStateInfo.gold >= weaponConfig.price)
-                    {
-                        Broadcast(MessageType.PurchaseWeapon, playerPurchaseWeapon);
-                        playerStateInfo.gold -= weaponConfig.price;
-                        var weaponManager = playerPool[playerInfoName].GetComponent<WeaponManager>();
-                        weaponManager.AcquireWeapon(weaponConfig.id, weaponConfig.magazineCapacity, weaponConfig.magazineCapacity * 2);
-                        var playerAcquireWeapon = new PlayerAcquireWeapon(playerInfoName, weaponConfig.id);
-                        Broadcast(MessageType.AcquireWeapon, playerAcquireWeapon);
-                    }
-                    break;
-
-                case MessageType.PingPong:
-                    var pingPong = JsonConvert.DeserializeObject<PingPong>(msg);
-                    if(clientsDic.ContainsKey(pingPong.playerName))
-                    SendMessage(pingPong.playerName, MessageType.PingPong, pingPong);
-                    break;
+                try { handler(data.Item2); }
+                catch (Exception ex) { Debug.LogException(ex); }
+            }
+            else
+            {
+                Debug.LogWarning($"No handler for message type: {data.Item1}");
             }
         }
+
         tickTimer += Time.deltaTime;
-        while(tickTimer >= TICK_INTERVAL)
+        while (tickTimer >= TICK_INTERVAL)
         {
             tickTimer -= TICK_INTERVAL;
-            foreach(string playerName in playerStateInfos.Keys)
-            {
-                GameObject player = playerPool[playerName];
-                player.GetComponent<PlayerState>().UpdateStateInfo(playerStateInfos[playerName]);
-                if (playerDieList.Contains(playerName)) continue;
-
-                var playerController = player.GetComponent<PlayerController>();
-                PlayerInputInfo inputInfo = playerController.GetInputInfo();
-                playerController.ProcessInput(inputInfo);
-                playerController.UpdateStateInfo(playerStateInfos[playerName]);
-
-                var weaponManager = player.GetComponent<WeaponManager>();
-                weaponManager.HandleTick();
-                weaponManager.UpdateStateInfo(playerStateInfos[playerName]);
-            }
-            List<PlayerStateInfo> allPlayersInfo = playerStateInfos.Values.ToList();
-            Broadcast(MessageType.AllPlayersInfo, allPlayersInfo);
+            TickSimulation();
         }
+    }
+
+    /// <summary>每 tick 模拟所有玩家 + 广播全员状态</summary>
+    private void TickSimulation()
+    {
+        foreach (string playerName in playerStateInfos.Keys)
+        {
+            GameObject player = playerPool[playerName];
+            player.GetComponent<PlayerState>().UpdateStateInfo(playerStateInfos[playerName]);
+            if (playerDieList.Contains(playerName)) continue;
+
+            var playerController = player.GetComponent<PlayerController>();
+            PlayerInputInfo inputInfo = playerController.GetInputInfo();
+            playerController.ProcessInput(inputInfo);
+            playerController.UpdateStateInfo(playerStateInfos[playerName]);
+
+            var weaponManager = player.GetComponent<WeaponManager>();
+            weaponManager.HandleTick();
+            weaponManager.UpdateStateInfo(playerStateInfos[playerName]);
+        }
+        List<PlayerStateInfo> allPlayersInfo = playerStateInfos.Values.ToList();
+        Broadcast(MessageType.AllPlayersInfo, allPlayersInfo);
+    }
+
+    // ============ Message Handlers ============
+
+    private void OnReady(string msg)
+    {
+        var playerReady = JsonConvert.DeserializeObject<PlayerReady>(msg);
+        if (!playerReadyList.Contains(playerReady.playerName))
+            playerReadyList.Add(playerReady.playerName);
+    }
+
+    private void OnInputInfo(string msg)
+    {
+        var inputInfo = JsonConvert.DeserializeObject<PlayerInputInfo>(msg);
+        if (playerDieList.Contains(inputInfo.playerName)) return;
+        if (playerPool.TryGetValue(inputInfo.playerName, out var player) && player != null)
+            player.GetComponent<PlayerController>().ApplyInput(inputInfo);
+    }
+
+    private void OnFire(string msg)
+    {
+        var playerFire = JsonConvert.DeserializeObject<PlayerFire>(msg);
+        if (playerDieList.Contains(playerFire.playerName)) return;
+        if (playerPool.TryGetValue(playerFire.playerName, out var player) && player != null)
+            player.GetComponent<WeaponManager>().Fire(playerFire.seed);
+    }
+
+    private void OnReload(string msg)
+    {
+        var playerReload = JsonConvert.DeserializeObject<PlayerReload>(msg);
+        if (!playerDieList.Contains(playerReload.playerName)
+            && playerPool.TryGetValue(playerReload.playerName, out var player) && player != null)
+            player.GetComponent<WeaponManager>().StartReload();
+        Broadcast(MessageType.Reload, playerReload);
+    }
+
+    private void OnSwitchWeapon(string msg)
+    {
+        var playerSwitchWeapon = JsonConvert.DeserializeObject<PlayerSwitchWeapon>(msg);
+        if (playerPool.TryGetValue(playerSwitchWeapon.playerName, out var player) && player != null)
+            player.GetComponent<WeaponManager>().SwitchWeapon(playerSwitchWeapon.index);
+        Broadcast(MessageType.SwitchWeapon, playerSwitchWeapon);
+    }
+
+    private void OnPurchaseWeapon(string msg)
+    {
+        if (MatchManager.instance.currentRoundState != RoundState.Preparation) return;
+        var playerPurchaseWeapon = JsonConvert.DeserializeObject<PlayerPurchaseWeapon>(msg);
+        if (!playerStateInfos.TryGetValue(playerPurchaseWeapon.playerName, out var playerStateInfo)) return;
+        WeaponConfig weaponConfig = WeaponDic.instance.weaponDic[playerPurchaseWeapon.id];
+        if (playerStateInfo.gold < weaponConfig.price) return;
+
+        Broadcast(MessageType.PurchaseWeapon, playerPurchaseWeapon);
+        playerStateInfo.gold -= weaponConfig.price;
+        if (playerPool.TryGetValue(playerPurchaseWeapon.playerName, out var player) && player != null)
+        {
+            var weaponManager = player.GetComponent<WeaponManager>();
+            weaponManager.AcquireWeapon(weaponConfig.id, weaponConfig.magazineCapacity, weaponConfig.magazineCapacity * 2);
+        }
+        var playerAcquireWeapon = new PlayerAcquireWeapon(playerPurchaseWeapon.playerName, weaponConfig.id);
+        Broadcast(MessageType.AcquireWeapon, playerAcquireWeapon);
+    }
+
+    private void OnPingPong(string msg)
+    {
+        var pingPong = JsonConvert.DeserializeObject<PingPong>(msg);
+        if (clientsDic.ContainsKey(pingPong.playerName))
+            Send(pingPong.playerName, MessageType.PingPong, pingPong);
     }
 
     private void OnApplicationQuit()
@@ -197,23 +242,34 @@ public class NetworkManager : MonoBehaviour
                 string str = Encoding.UTF8.GetString(data, 8, data.Length - 8);
                 messageList.Enqueue((type, str));
 
-                lock (clientsLock)
+                // 首次 Ready 消息时登记 endpoint。
+                // 必须 clone IPEndPoint，因为 udpServer.Receive(ref remote) 会复用同一个引用。
+                if (type == MessageType.Ready)
                 {
-                    if (!clients.Contains(remote) && type == MessageType.Ready)
+                    PlayerReady playerReady = JsonConvert.DeserializeObject<PlayerReady>(str);
+                    if (playerReady != null && !clientsDic.ContainsKey(playerReady.playerName))
                     {
-                        clients.Add(remote);
-                        PlayerReady playerReady = JsonConvert.DeserializeObject<PlayerReady>(str);
-                        clientsDic[playerReady.playerName] = remote;
+                        var endpointCopy = new IPEndPoint(remote.Address, remote.Port);
+                        clientsDic[playerReady.playerName] = endpointCopy;
                     }
                 }
             }
-            catch (Exception e)
+            catch (ObjectDisposedException)
             {
+                break;
+            }
+            catch (SocketException ex)
+            {
+                Debug.LogWarning($"recv socket error: {ex.SocketErrorCode}");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
             }
         }
     }
 
-    public static void SendMessage<T>(string uid, MessageType type, T data)
+    public static void Send<T>(string uid, MessageType type, T data)
     {
         try
         {
@@ -244,6 +300,6 @@ public class NetworkManager : MonoBehaviour
     public static void Broadcast<T>(MessageType type, T data)
     {
         foreach (string uid in clientsDic.Keys)
-            SendMessage(uid, type, data);
+            Send(uid, type, data);
     }
 }

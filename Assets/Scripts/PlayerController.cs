@@ -1,8 +1,3 @@
-using Newtonsoft.Json;
-using System.Collections;
-using System.Collections.Generic;
-using System.Runtime.CompilerServices;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public class PlayerController : MonoBehaviour
@@ -76,12 +71,21 @@ public class PlayerController : MonoBehaviour
         isWalk = false; 
     }
 
+    // 服务端权威：限制单 tick 输入合理范围，防止异常客户端瞬移视角 / 加速移动
+    // 预算：1 个 tick 间隔 ~7.8ms (128Hz)，正常游戏最快约 720°/s -> 单 tick ~5.6°
+    // 这里给到 30° 作为宽松上限（考虑灵敏度乘子与抖动），超过的 input 视为可疑
+    private const float MAX_LOOK_DELTA_PER_TICK = 30f / 0.2f;   // 角度 / mouseSensitive
+
     public void ApplyInput(PlayerInputInfo inputInfo)
     {
-        lookInputX += inputInfo.lookInputX;
-        lookInputY += inputInfo.lookInputY;
-        moveInputX = inputInfo.moveInputX;
-        moveInputY = inputInfo.moveInputY;
+        // 范围 clamp：移动方向的归一向量分量必须在 [-1, 1]
+        float clampedLookX = Mathf.Clamp(inputInfo.lookInputX, -MAX_LOOK_DELTA_PER_TICK, MAX_LOOK_DELTA_PER_TICK);
+        float clampedLookY = Mathf.Clamp(inputInfo.lookInputY, -MAX_LOOK_DELTA_PER_TICK, MAX_LOOK_DELTA_PER_TICK);
+
+        lookInputX += clampedLookX;
+        lookInputY += clampedLookY;
+        moveInputX = Mathf.Clamp(inputInfo.moveInputX, -1f, 1f);
+        moveInputY = Mathf.Clamp(inputInfo.moveInputY, -1f, 1f);
         latestTick = inputInfo.tick;
         isWalk = inputInfo.isWalk;
         isCrouch = inputInfo.isCrouch;
@@ -186,6 +190,6 @@ public class PlayerController : MonoBehaviour
     public void GetHit(Vector3 position)
     {
         var hit = new Hit(playerInfo.playerName, position);
-        NetworkManager.SendMessage(playerInfo.playerName, MessageType.Hit, hit);
+        NetworkManager.Send(playerInfo.playerName, MessageType.Hit, hit);
     }
 }

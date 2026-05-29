@@ -1,4 +1,3 @@
-using Newtonsoft.Json;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -20,14 +19,17 @@ public class PlayerState : MonoBehaviour
     {
         if (playerName == this.playerName)
             return;
-        if (damage < armature)
+
+        // 护甲先吸收，剩余伤害扣 HP
+        if (damage <= armature)
         {
             armature -= damage;
         }
         else
         {
+            int remaining = damage - armature;
             armature = 0;
-            HP -= damage - armature;
+            HP -= remaining;
         }
         HP = Mathf.Max(HP, 0);
         if(HP == 0 && !isDie)
