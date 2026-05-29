@@ -6,6 +6,14 @@ public class MatchManager : MonoBehaviour
 {
     public static MatchManager instance;
 
+    // ============ 经济参数 ============
+    /// <summary>开局给每个玩家的初始金币。</summary>
+    public const int INITIAL_GOLD = 300;
+    /// <summary>每回合开始时固定发的金币（不含击杀奖励）。</summary>
+    public const int ROUND_INCOME = 300;
+    /// <summary>击杀一个敌人累计的奖励，下回合发放。</summary>
+    public const int KILL_REWARD = 100;
+
     private bool gameStart = false;
     private readonly int ROUND_TO_WIN = 10;
     private Dictionary<RoundState, float> round_time;
@@ -73,7 +81,7 @@ public class MatchManager : MonoBehaviour
                 if (roundTimer <= 0)
                 {
                     currentRound++;
-                    Initialize();
+                    StartNextRound();
                     SwitchProgress(RoundState.Preparation);
                 }
                 break;
@@ -83,7 +91,7 @@ public class MatchManager : MonoBehaviour
     public void StartGame()
     {
         gameStart = true;
-        Initialize();
+        InitializeFirstRound();
         SwitchProgress(RoundState.Preparation);
         List<PlayerStateInfo> allPlayersInfo = NetworkManager.playerStateInfos.Values.ToList();
         NetworkManager.Broadcast(MessageType.Start, allPlayersInfo);
@@ -102,7 +110,11 @@ public class MatchManager : MonoBehaviour
         return aliveNum[0] == 0 || aliveNum[1] == 0;
     }
 
-    public void Initialize()
+    /// <summary>
+    /// 整局游戏第一次开局：玩家 PlayerState.Initialize 已经在 NetworkManager.Start 阶段发了 INITIAL_GOLD。
+    /// 这里负责重置存活数 + 复活所有玩家 + 武器/血量初始化。
+    /// </summary>
+    private void InitializeFirstRound()
     {
         aliveNum[0] = NetworkManager.playerNum / 2;
         aliveNum[1] = NetworkManager.playerNum / 2;
@@ -111,9 +123,42 @@ public class MatchManager : MonoBehaviour
             if (!NetworkManager.playerPool.TryGetValue(playerName, out var player) || player == null) continue;
             player.SetActive(true);
             player.GetComponent<PlayerController>().Reborn();
-            player.GetComponent<WeaponManager>().Initialize();
+            // 首回合：所有人都没有主武器，按 dropMainGun=true 走（其实初始 weapons[1]=null，效果一样）
+            player.GetComponent<WeaponManager>().InitializeForRound(dropMainGun: true);
             player.GetComponent<PlayerState>().Reborn();
         }
+        NetworkManager.playerDieList.Clear();
+    }
+
+    /// <summary>
+    /// 第二回合及之后：发放金币（基础 + 击杀奖励）、按死亡名单决定武器去留、补满弹药、复活所有人。
+    /// </summary>
+    private void StartNextRound()
+    {
+        aliveNum[0] = NetworkManager.playerNum / 2;
+        aliveNum[1] = NetworkManager.playerNum / 2;
+
+        // 上回合的死亡名单。playerDieList 在最后才 Clear，所以这里能安全读到。
+        var diedThisRound = NetworkManager.playerDieList;
+
+        foreach (string playerName in NetworkManager.playerStateInfos.Keys)
+        {
+            if (!NetworkManager.playerPool.TryGetValue(playerName, out var player) || player == null) continue;
+
+            bool died = diedThisRound.Contains(playerName);
+
+            // 1) 武器：死了丢主武器，活着保留并补满弹药
+            player.GetComponent<WeaponManager>().InitializeForRound(dropMainGun: died);
+
+            // 2) 经济：发本回合基础金币 + 上回合累计击杀奖励
+            player.GetComponent<PlayerState>().GrantRoundIncome();
+
+            // 3) 复活 + 重置 HP / 移动状态
+            player.SetActive(true);
+            player.GetComponent<PlayerController>().Reborn();
+            player.GetComponent<PlayerState>().Reborn();
+        }
+
         NetworkManager.playerDieList.Clear();
     }
 }

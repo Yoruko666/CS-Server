@@ -66,7 +66,7 @@ public class PlayerStateInfo
     {
         this.playerName = playerName;
         HP = 100;
-        gold = 10000;
+        gold = MatchManager.INITIAL_GOLD;
         weapons[0] = new WeaponInfo(2, 12, 24);
     }
 }

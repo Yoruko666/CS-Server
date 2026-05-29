@@ -192,17 +192,22 @@ public class NetworkManager : MonoBehaviour
     {
         if (MatchManager.instance.currentRoundState != RoundState.Preparation) return;
         var playerPurchaseWeapon = JsonConvert.DeserializeObject<PlayerPurchaseWeapon>(msg);
-        if (!playerStateInfos.TryGetValue(playerPurchaseWeapon.playerName, out var playerStateInfo)) return;
-        WeaponConfig weaponConfig = WeaponDic.instance.weaponDic[playerPurchaseWeapon.id];
-        if (playerStateInfo.gold < weaponConfig.price) return;
+        if (!playerPool.TryGetValue(playerPurchaseWeapon.playerName, out var player) || player == null) return;
+        var playerState = player.GetComponent<PlayerState>();
+        if (playerState == null) return;
 
-        Broadcast(MessageType.PurchaseWeapon, playerPurchaseWeapon);
-        playerStateInfo.gold -= weaponConfig.price;
-        if (playerPool.TryGetValue(playerPurchaseWeapon.playerName, out var player) && player != null)
-        {
-            var weaponManager = player.GetComponent<WeaponManager>();
-            weaponManager.AcquireWeapon(weaponConfig.id, weaponConfig.magazineCapacity, weaponConfig.magazineCapacity * 2);
-        }
+        WeaponConfig weaponConfig = WeaponDic.instance.weaponDic[playerPurchaseWeapon.id];
+        if (playerState.gold < weaponConfig.price) return;
+
+        // 扣权威金币（下一 tick 通过 UpdateStateInfo 同步到客户端）
+        playerState.gold -= weaponConfig.price;
+
+        // 服务端武器组件装备
+        var weaponManager = player.GetComponent<WeaponManager>();
+        weaponManager.AcquireWeapon(weaponConfig.id, weaponConfig.magazineCapacity, weaponConfig.magazineCapacity * 2);
+
+        // 统一通过 AcquireWeapon 广播给所有客户端（包括购买者自己）。
+        // 购买者本地不再做任何预测，等这条权威广播到达再装备武器。
         var playerAcquireWeapon = new PlayerAcquireWeapon(playerPurchaseWeapon.playerName, weaponConfig.id);
         Broadcast(MessageType.AcquireWeapon, playerAcquireWeapon);
     }

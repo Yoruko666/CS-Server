@@ -50,13 +50,37 @@ public class WeaponManager : MonoBehaviour
 
     public void Initialize()
     {
+        InitializeForRound(dropMainGun: false);
+    }
+
+    /// <summary>
+    /// 回合开始时重置武器状态。
+    /// 副武器永远刷新到默认手枪（id=2）+ 满弹。
+    /// 主武器：dropMainGun=true → 丢失（清空槽位）；false → 保留并补满弹药。
+    /// 切回手枪槽位作为本回合默认握持，避免上回合死时持枪状态被带过来。
+    /// </summary>
+    public void InitializeForRound(bool dropMainGun)
+    {
+        // 副武器永远满血复活
         weapons[0] = new WeaponInfo(2, 12, 24);
-        if (weapons[1] != null)
+
+        if (dropMainGun)
         {
-            WeaponConfig weaponConfig = WeaponDic.instance.weaponDic[weapons[1].id];
-            AcquireWeapon(weaponConfig.id, weaponConfig.magazineCapacity, weaponConfig.magazineCapacity * 2);
-            SwitchWeapon(1);
+            weapons[1] = null;
         }
+        else if (weapons[1] != null)
+        {
+            // 保留主武器，补满弹药
+            WeaponConfig cfg = WeaponDic.instance.weaponDic[weapons[1].id];
+            weapons[1] = new WeaponInfo(cfg.id, cfg.magazineCapacity, cfg.magazineCapacity * 2);
+        }
+
+        // 默认握持槽位：有主武器持主武器，否则持副武器
+        activeWeaponIndex = weapons[1] != null ? 1 : 0;
+        reloading = false;
+        firingTime = 0;
+        upTime = 0;
+        upAngle = 0;
     }
 
     public void UpdateStateInfo(PlayerStateInfo playerStateInfo)
