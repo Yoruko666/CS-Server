@@ -5,9 +5,9 @@ public class BodyCollider : MonoBehaviour
     public Transform character;
     public BodyPart part;
 
-    public void GetDamaged(string playerName, int damage, int weaponId)
+    public void GetDamaged(int attackerUid, int damage, int weaponId)
     {
-        character.GetComponent<PlayerState>().GetDamaged(playerName, damage, part == BodyPart.Head, weaponId);
+        character.GetComponent<PlayerState>().GetDamaged(attackerUid, damage, part == BodyPart.Head, weaponId);
     }
 }
 

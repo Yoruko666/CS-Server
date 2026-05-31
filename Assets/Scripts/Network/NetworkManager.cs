@@ -26,7 +26,7 @@ public class NetworkManager : MonoBehaviour
 
     private static ConcurrentQueue<(MessageType, string)> messageList = new();
     public static ConcurrentDictionary<string, GameObject> playerPool = new();
-    public static ConcurrentDictionary<int, GameObject> idPlayerPool = new();
+    public static ConcurrentDictionary<int, GameObject> slotPlayerPool = new();
     public static ConcurrentDictionary<string, PlayerStateInfo> playerStateInfos = new();
 
     public static HashSet<string> playerReadyList = new();
@@ -76,18 +76,19 @@ public class NetworkManager : MonoBehaviour
                     int[] j2id = new int[] { 0, 3, 1, 4, 2, 5 }; 
                     for(int j = 0; j < playerNum; j++)
                     {
-                        string uid = playerList[j];
-                        playerStateInfos.TryAdd(uid, new PlayerStateInfo());
-                        playerStateInfos[uid].Initialize(uid);
-                        int id = j2id[j];
-                        playerStateInfos[uid].id = id;
-                        playerStateInfos[uid].team = id < 3 ? 0 : 1;
+                        string uidStr = playerList[j];
+                        int uid = int.Parse(uidStr);
+                        playerStateInfos.TryAdd(uidStr, new PlayerStateInfo());
+                        playerStateInfos[uidStr].Initialize(uid);
+                        int slot = j2id[j];
+                        playerStateInfos[uidStr].slot = slot;
+                        playerStateInfos[uidStr].team = slot < 3 ? 0 : 1;
                         GameObject player = Instantiate(Resources.Load<GameObject>("Prefabs/Character"));
-                        player.GetComponent<PlayerController>().Initialize(id, uid);
-                        player.GetComponent<PlayerState>().Initialize(id, uid);
-                        player.GetComponent<WeaponManager>().playerName = uid;
-                        playerPool.TryAdd(uid, player);
-                        idPlayerPool.TryAdd(id, player);
+                        player.GetComponent<PlayerController>().Initialize(slot, uid);
+                        player.GetComponent<PlayerState>().Initialize(slot, uid);
+                        player.GetComponent<WeaponManager>().uid = uid;
+                        playerPool.TryAdd(uidStr, player);
+                        slotPlayerPool.TryAdd(slot, player);
                     }
                     break;
             }
@@ -127,20 +128,20 @@ public class NetworkManager : MonoBehaviour
     /// <summary>每 tick 模拟所有玩家 + 广播全员状态</summary>
     private void TickSimulation()
     {
-        foreach (string playerName in playerStateInfos.Keys)
+        foreach (string uidStr in playerStateInfos.Keys)
         {
-            if (!playerPool.TryGetValue(playerName, out var player) || player == null) continue;
-            player.GetComponent<PlayerState>().UpdateStateInfo(playerStateInfos[playerName]);
-            if (playerDieList.Contains(playerName)) continue;
+            if (!playerPool.TryGetValue(uidStr, out var player) || player == null) continue;
+            player.GetComponent<PlayerState>().UpdateStateInfo(playerStateInfos[uidStr]);
+            if (playerDieList.Contains(uidStr)) continue;
 
             var playerController = player.GetComponent<PlayerController>();
             PlayerInputInfo inputInfo = playerController.GetInputInfo();
             playerController.ProcessInput(inputInfo);
-            playerController.UpdateStateInfo(playerStateInfos[playerName]);
+            playerController.UpdateStateInfo(playerStateInfos[uidStr]);
 
             var weaponManager = player.GetComponent<WeaponManager>();
             weaponManager.HandleTick();
-            weaponManager.UpdateStateInfo(playerStateInfos[playerName]);
+            weaponManager.UpdateStateInfo(playerStateInfos[uidStr]);
         }
         List<PlayerStateInfo> allPlayersInfo = playerStateInfos.Values.ToList();
         Broadcast(MessageType.AllPlayersInfo, allPlayersInfo);
@@ -151,31 +152,35 @@ public class NetworkManager : MonoBehaviour
     private void OnReady(string msg)
     {
         var playerReady = JsonConvert.DeserializeObject<PlayerReady>(msg);
-        if (!playerReadyList.Contains(playerReady.playerName))
-            playerReadyList.Add(playerReady.playerName);
+        string uidStr = playerReady.uid.ToString();
+        if (!playerReadyList.Contains(uidStr))
+            playerReadyList.Add(uidStr);
     }
 
     private void OnInputInfo(string msg)
     {
         var inputInfo = JsonConvert.DeserializeObject<PlayerInputInfo>(msg);
-        if (playerDieList.Contains(inputInfo.playerName)) return;
-        if (playerPool.TryGetValue(inputInfo.playerName, out var player) && player != null)
+        string uidStr = inputInfo.uid.ToString();
+        if (playerDieList.Contains(uidStr)) return;
+        if (playerPool.TryGetValue(uidStr, out var player) && player != null)
             player.GetComponent<PlayerController>().ApplyInput(inputInfo);
     }
 
     private void OnFire(string msg)
     {
         var playerFire = JsonConvert.DeserializeObject<PlayerFire>(msg);
-        if (playerDieList.Contains(playerFire.playerName)) return;
-        if (playerPool.TryGetValue(playerFire.playerName, out var player) && player != null)
+        string uidStr = playerFire.uid.ToString();
+        if (playerDieList.Contains(uidStr)) return;
+        if (playerPool.TryGetValue(uidStr, out var player) && player != null)
             player.GetComponent<WeaponManager>().Fire(playerFire.seed);
     }
 
     private void OnReload(string msg)
     {
         var playerReload = JsonConvert.DeserializeObject<PlayerReload>(msg);
-        if (!playerDieList.Contains(playerReload.playerName)
-            && playerPool.TryGetValue(playerReload.playerName, out var player) && player != null)
+        string uidStr = playerReload.uid.ToString();
+        if (!playerDieList.Contains(uidStr)
+            && playerPool.TryGetValue(uidStr, out var player) && player != null)
             player.GetComponent<WeaponManager>().StartReload();
         Broadcast(MessageType.Reload, playerReload);
     }
@@ -183,7 +188,7 @@ public class NetworkManager : MonoBehaviour
     private void OnSwitchWeapon(string msg)
     {
         var playerSwitchWeapon = JsonConvert.DeserializeObject<PlayerSwitchWeapon>(msg);
-        if (playerPool.TryGetValue(playerSwitchWeapon.playerName, out var player) && player != null)
+        if (playerPool.TryGetValue(playerSwitchWeapon.uid.ToString(), out var player) && player != null)
             player.GetComponent<WeaponManager>().SwitchWeapon(playerSwitchWeapon.index);
         Broadcast(MessageType.SwitchWeapon, playerSwitchWeapon);
     }
@@ -192,7 +197,7 @@ public class NetworkManager : MonoBehaviour
     {
         if (MatchManager.instance.currentRoundState != RoundState.Preparation) return;
         var playerPurchaseWeapon = JsonConvert.DeserializeObject<PlayerPurchaseWeapon>(msg);
-        if (!playerPool.TryGetValue(playerPurchaseWeapon.playerName, out var player) || player == null) return;
+        if (!playerPool.TryGetValue(playerPurchaseWeapon.uid.ToString(), out var player) || player == null) return;
         var playerState = player.GetComponent<PlayerState>();
         if (playerState == null) return;
 
@@ -208,15 +213,16 @@ public class NetworkManager : MonoBehaviour
 
         // 统一通过 AcquireWeapon 广播给所有客户端（包括购买者自己）。
         // 购买者本地不再做任何预测，等这条权威广播到达再装备武器。
-        var playerAcquireWeapon = new PlayerAcquireWeapon(playerPurchaseWeapon.playerName, weaponConfig.id);
+        var playerAcquireWeapon = new PlayerAcquireWeapon(playerPurchaseWeapon.uid, weaponConfig.id);
         Broadcast(MessageType.AcquireWeapon, playerAcquireWeapon);
     }
 
     private void OnPingPong(string msg)
     {
         var pingPong = JsonConvert.DeserializeObject<PingPong>(msg);
-        if (clientsDic.ContainsKey(pingPong.playerName))
-            Send(pingPong.playerName, MessageType.PingPong, pingPong);
+        string uidStr = pingPong.uid.ToString();
+        if (clientsDic.ContainsKey(uidStr))
+            Send(uidStr, MessageType.PingPong, pingPong);
     }
 
     private void OnApplicationQuit()
@@ -257,10 +263,14 @@ public class NetworkManager : MonoBehaviour
                 if (type == MessageType.Ready)
                 {
                     PlayerReady playerReady = JsonConvert.DeserializeObject<PlayerReady>(str);
-                    if (playerReady != null && !clientsDic.ContainsKey(playerReady.playerName))
+                    if (playerReady != null)
                     {
-                        var endpointCopy = new IPEndPoint(remote.Address, remote.Port);
-                        clientsDic[playerReady.playerName] = endpointCopy;
+                        string uidStr = playerReady.uid.ToString();
+                        if (!clientsDic.ContainsKey(uidStr))
+                        {
+                            var endpointCopy = new IPEndPoint(remote.Address, remote.Port);
+                            clientsDic[uidStr] = endpointCopy;
+                        }
                     }
                 }
             }

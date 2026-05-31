@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
-    public int id;
+    public int slot;
 
     private Transform center;
     public Transform spine;
@@ -50,10 +50,10 @@ public class PlayerController : MonoBehaviour
         spine.Rotate(0, 0, rotationX, Space.Self);
     }
 
-    public void Initialize(int id, string playerName)
+    public void Initialize(int slot, int uid)
     {
-        this.id = id;
-        playerInfo.playerName = playerName;
+        this.slot = slot;
+        playerInfo.uid = uid;
         Reborn();
     }
 
@@ -61,9 +61,9 @@ public class PlayerController : MonoBehaviour
     {
         characterController.enabled = false;
         rotationX = 0;
-        rotationY = (id / 3) * 180;
-        transform.position = MatchManager.instance.mapConfig.bornPoints[id];
-        transform.rotation = Quaternion.Euler(0, ((id / 3) * 180), 0);
+        rotationY = (slot / 3) * 180;
+        transform.position = MatchManager.instance.mapConfig.bornPoints[slot];
+        transform.rotation = Quaternion.Euler(0, ((slot / 3) * 180), 0);
         characterController.enabled = true;
 
         moveInputX = moveInputY = 0;
@@ -130,7 +130,7 @@ public class PlayerController : MonoBehaviour
 
     public PlayerInputInfo GetInputInfo()
     {
-        PlayerInputInfo inputInfo = new PlayerInputInfo("Server", moveInputX, moveInputY, lookInputX, lookInputY, jump, isWalk, isCrouch);
+        PlayerInputInfo inputInfo = new PlayerInputInfo(-1, moveInputX, moveInputY, lookInputX, lookInputY, jump, isWalk, isCrouch);
         lookInputX = 0;
         lookInputY = 0;
         jump = false;
@@ -212,7 +212,7 @@ public class PlayerController : MonoBehaviour
 
     public void GetHit(Vector3 position)
     {
-        var hit = new Hit(playerInfo.playerName, position);
-        NetworkManager.Send(playerInfo.playerName, MessageType.Hit, hit);
+        var hit = new Hit(playerInfo.uid, position);
+        NetworkManager.Send(playerInfo.uid.ToString(), MessageType.Hit, hit);
     }
 }

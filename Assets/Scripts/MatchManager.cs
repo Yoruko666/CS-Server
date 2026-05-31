@@ -120,9 +120,9 @@ public class MatchManager : MonoBehaviour
     {
         aliveNum[0] = NetworkManager.playerNum / 2;
         aliveNum[1] = NetworkManager.playerNum / 2;
-        foreach (string playerName in NetworkManager.playerStateInfos.Keys)
+        foreach (string uidStr in NetworkManager.playerStateInfos.Keys)
         {
-            if (!NetworkManager.playerPool.TryGetValue(playerName, out var player) || player == null) continue;
+            if (!NetworkManager.playerPool.TryGetValue(uidStr, out var player) || player == null) continue;
             player.SetActive(true);
             player.GetComponent<PlayerController>().Reborn();
             // 首回合：所有人都没有主武器，按 dropMainGun=true 走（其实初始 weapons[1]=null，效果一样）
@@ -143,11 +143,11 @@ public class MatchManager : MonoBehaviour
         // 上回合的死亡名单。playerDieList 在最后才 Clear，所以这里能安全读到。
         var diedThisRound = NetworkManager.playerDieList;
 
-        foreach (string playerName in NetworkManager.playerStateInfos.Keys)
+        foreach (string uidStr in NetworkManager.playerStateInfos.Keys)
         {
-            if (!NetworkManager.playerPool.TryGetValue(playerName, out var player) || player == null) continue;
+            if (!NetworkManager.playerPool.TryGetValue(uidStr, out var player) || player == null) continue;
 
-            bool died = diedThisRound.Contains(playerName);
+            bool died = diedThisRound.Contains(uidStr);
 
             // 1) 武器：死了丢主武器，活着保留并补满弹药
             player.GetComponent<WeaponManager>().InitializeForRound(dropMainGun: died);

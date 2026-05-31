@@ -323,7 +323,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4f6815fea6cfcf24fa69ef9fc0a5b79b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  playerName: 
+  uid: 0
   HP: 0
   armature: 0
 --- !u!114 &7422323391999472437
@@ -338,7 +338,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ef0148d7e5825f6429b96c44c49ab631, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  id: 0
+  slot: 0
   spine: {fileID: 2384418128388303285}
 --- !u!114 &12988283573878138
 MonoBehaviour:
@@ -352,7 +352,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2c9ec15837df684a89727023e309128, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  playerName: 
+  uid: 0
 --- !u!1 &1431341432678937003
 GameObject:
   m_ObjectHideFlags: 0

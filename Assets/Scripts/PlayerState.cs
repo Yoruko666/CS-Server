@@ -3,8 +3,8 @@ using UnityEngine;
 
 public class PlayerState : MonoBehaviour
 {
-    [HideInInspector] public string playerName;
-    [HideInInspector] public int id;
+    [HideInInspector] public int uid;
+    [HideInInspector] public int slot;
     [HideInInspector] public int HP, armature;
     [HideInInspector] public int gold;
     [HideInInspector] public bool isDie;
@@ -16,7 +16,7 @@ public class PlayerState : MonoBehaviour
     /// 本次生命周期内对自己造成过伤害的所有攻击者名字（用于死亡时结算助攻）。
     /// Reborn 时清空。
     /// </summary>
-    private readonly HashSet<string> damageContributors = new();
+    private readonly HashSet<int> damageContributors = new();
 
     void Start()
     {
@@ -24,13 +24,13 @@ public class PlayerState : MonoBehaviour
         armature = 0;
     }
 
-    public void GetDamaged(string attackerName, int damage, bool shotHead, int weaponId)
+    public void GetDamaged(int attackerUid, int damage, bool shotHead, int weaponId)
     {
-        if (attackerName == this.playerName)
+        if (attackerUid == this.uid)
             return;
 
         // 记录这次伤害的来源（用于死亡时分发助攻）
-        damageContributors.Add(attackerName);
+        damageContributors.Add(attackerUid);
 
         // 护甲先吸收，剩余伤害扣 HP
         if (damage <= armature)
@@ -47,16 +47,16 @@ public class PlayerState : MonoBehaviour
         if(HP == 0 && !isDie)
         {
             isDie = true;
-            MatchManager.instance.aliveNum[id < 3 ? 0 : 1]--;
+            MatchManager.instance.aliveNum[slot < 3 ? 0 : 1]--;
 
-            NetworkManager.playerDieList.Add(this.playerName);
-            PlayerKill playerKill = new(attackerName, this.playerName, shotHead, weaponId);
+            NetworkManager.playerDieList.Add(this.uid.ToString());
+            PlayerKill playerKill = new(attackerUid, this.uid, shotHead, weaponId);
             NetworkManager.Broadcast(MessageType.Kill, playerKill);
 
             // 分发奖励：最后一击拿 KILL_REWARD，其余贡献者拿 ASSIST_REWARD
-            DistributeKillRewards(killerName: attackerName);
+            DistributeKillRewards(killerUid: attackerUid);
 
-            if (NetworkManager.playerPool.TryGetValue(this.playerName, out var player) && player != null)
+            if (NetworkManager.playerPool.TryGetValue(this.uid.ToString(), out var player) && player != null)
                 player.SetActive(false);
         }
     }
@@ -65,15 +65,15 @@ public class PlayerState : MonoBehaviour
     /// 把击杀奖励 + 助攻奖励累计到对应玩家的 pendingKillReward。
     /// 下回合 GrantRoundIncome 时统一发放。
     /// </summary>
-    private void DistributeKillRewards(string killerName)
+    private void DistributeKillRewards(int killerUid)
     {
-        foreach (string contributor in damageContributors)
+        foreach (int contributor in damageContributors)
         {
-            int reward = (contributor == killerName)
+            int reward = (contributor == killerUid)
                 ? MatchManager.KILL_REWARD
                 : MatchManager.ASSIST_REWARD;
 
-            if (NetworkManager.playerPool.TryGetValue(contributor, out var go) && go != null)
+            if (NetworkManager.playerPool.TryGetValue(contributor.ToString(), out var go) && go != null)
             {
                 var state = go.GetComponent<PlayerState>();
                 if (state != null) state.pendingKillReward += reward;
@@ -81,10 +81,10 @@ public class PlayerState : MonoBehaviour
         }
     }
 
-    public void Initialize(int id, string playerName)
+    public void Initialize(int slot, int uid)
     {
-        this.id = id;
-        this.playerName = playerName;
+        this.slot = slot;
+        this.uid = uid;
         gold = MatchManager.INITIAL_GOLD;       // 开局发钱
         pendingKillReward = 0;
     }

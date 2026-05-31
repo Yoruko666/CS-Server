@@ -13,7 +13,7 @@ public class WeaponManager : MonoBehaviour
     private bool reloading = false;
     private float reloadTimer;
 
-    public string playerName;
+    public int uid;
     
     void Start()
     {
@@ -98,7 +98,7 @@ public class WeaponManager : MonoBehaviour
             int weaponId = weapons[activeWeaponIndex].id;
             firingTime = Mathf.Min(1 / WeaponDic.instance.weaponDic[weaponId].shootSpeed, 1);
 
-            PlayerStateInfo state = NetworkManager.playerStateInfos[GetComponent<PlayerState>().playerName];
+            PlayerStateInfo state = NetworkManager.playerStateInfos[GetComponent<PlayerState>().uid.ToString()];
 
             Quaternion playerRotation = Quaternion.Euler(0, state.rotationY, 0);
             Quaternion cameraRotation = Quaternion.Euler(state.rotationX, 0, 0);
@@ -135,7 +135,7 @@ public class WeaponManager : MonoBehaviour
                 if (bodyCollider != null)
                 {
                     // 跳过射手自己身上的 BodyCollider，不更新 hitPoint
-                    if (bodyCollider.character.GetComponent<PlayerState>().playerName == playerName)
+                    if (bodyCollider.character.GetComponent<PlayerState>().uid == uid)
                         continue;
 
                     // 命中敌人：结算伤害 + 通知被击中者播 hit indicator
@@ -143,7 +143,7 @@ public class WeaponManager : MonoBehaviour
                     if (bodyCollider.part == BodyPart.Head) damage = WeaponDic.instance.weaponDic[weaponId].damage_head;
                     if (bodyCollider.part == BodyPart.Torso) damage = WeaponDic.instance.weaponDic[weaponId].damage_torso;
                     if (bodyCollider.part == BodyPart.Legs) damage = WeaponDic.instance.weaponDic[weaponId].damage_legs;
-                    bodyCollider.GetDamaged(playerName, damage, weaponId);
+                    bodyCollider.GetDamaged(uid, damage, weaponId);
                     bodyCollider.character.GetComponent<PlayerController>().GetHit(transform.position);
 
                     hitPoint = hit.point;
@@ -156,7 +156,7 @@ public class WeaponManager : MonoBehaviour
                     break;
                 }
             }
-            var playerFire = new PlayerFire(state.playerName, hitPoint);
+            var playerFire = new PlayerFire(state.uid, hitPoint);
             NetworkManager.Broadcast(MessageType.Fire, playerFire);
         }
     }
