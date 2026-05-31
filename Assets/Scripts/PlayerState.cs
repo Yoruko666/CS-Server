@@ -5,17 +5,13 @@ public class PlayerState : MonoBehaviour
 {
     [HideInInspector] public int uid;
     [HideInInspector] public int slot;
+    [HideInInspector] public int team;
     [HideInInspector] public int HP, armature;
     [HideInInspector] public int gold;
     [HideInInspector] public bool isDie;
 
-    /// <summary>本回合累计的击杀/助攻奖励，将在下回合开始（Preparation）时一并发放并清零。</summary>
     [HideInInspector] public int pendingKillReward;
 
-    /// <summary>
-    /// 本次生命周期内对自己造成过伤害的所有攻击者名字（用于死亡时结算助攻）。
-    /// Reborn 时清空。
-    /// </summary>
     private readonly HashSet<int> damageContributors = new();
 
     void Start()
@@ -47,17 +43,19 @@ public class PlayerState : MonoBehaviour
         if(HP == 0 && !isDie)
         {
             isDie = true;
-            MatchManager.instance.aliveNum[slot < 3 ? 0 : 1]--;
+            MatchManager.instance.aliveNum[team]--;
 
-            NetworkManager.playerDieList.Add(this.uid.ToString());
+            if (NetworkManager.players.TryGetValue(this.uid, out var entity))
+                entity.isDead = true;
+
             PlayerKill playerKill = new(attackerUid, this.uid, shotHead, weaponId);
             NetworkManager.Broadcast(MessageType.Kill, playerKill);
 
             // 分发奖励：最后一击拿 KILL_REWARD，其余贡献者拿 ASSIST_REWARD
             DistributeKillRewards(killerUid: attackerUid);
 
-            if (NetworkManager.playerPool.TryGetValue(this.uid.ToString(), out var player) && player != null)
-                player.SetActive(false);
+            if (NetworkManager.players.TryGetValue(this.uid, out var entity2) && entity2.root != null)
+                entity2.root.SetActive(false);
         }
     }
 
@@ -73,11 +71,8 @@ public class PlayerState : MonoBehaviour
                 ? MatchManager.KILL_REWARD
                 : MatchManager.ASSIST_REWARD;
 
-            if (NetworkManager.playerPool.TryGetValue(contributor.ToString(), out var go) && go != null)
-            {
-                var state = go.GetComponent<PlayerState>();
-                if (state != null) state.pendingKillReward += reward;
-            }
+            if (NetworkManager.players.TryGetValue(contributor, out var entity) && entity.state != null)
+                entity.state.pendingKillReward += reward;
         }
     }
 
@@ -85,7 +80,8 @@ public class PlayerState : MonoBehaviour
     {
         this.slot = slot;
         this.uid = uid;
-        gold = MatchManager.INITIAL_GOLD;       // 开局发钱
+        team = slot < 3 ? 0 : 1;
+        gold = MatchManager.INITIAL_GOLD;     
         pendingKillReward = 0;
     }
 
@@ -94,12 +90,9 @@ public class PlayerState : MonoBehaviour
         HP = 100;
         armature = 0;
         isDie = false;
-        damageContributors.Clear();             // 新一回合，伤害贡献者清零
+        damageContributors.Clear(); 
     }
 
-    /// <summary>
-    /// 回合切换到 Preparation 时调用：发本回合基础金币 + 上回合累计的击杀/助攻奖励，并清零暂存。
-    /// </summary>
     public void GrantRoundIncome()
     {
         gold += MatchManager.ROUND_INCOME + pendingKillReward;

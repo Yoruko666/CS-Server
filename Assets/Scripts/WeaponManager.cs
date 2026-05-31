@@ -53,15 +53,8 @@ public class WeaponManager : MonoBehaviour
         InitializeForRound(dropMainGun: false);
     }
 
-    /// <summary>
-    /// 回合开始时重置武器状态。
-    /// 副武器永远刷新到默认手枪（id=2）+ 满弹。
-    /// 主武器：dropMainGun=true → 丢失（清空槽位）；false → 保留并补满弹药。
-    /// 切回手枪槽位作为本回合默认握持，避免上回合死时持枪状态被带过来。
-    /// </summary>
     public void InitializeForRound(bool dropMainGun)
     {
-        // 副武器永远满血复活
         weapons[0] = new WeaponInfo(2, 12, 24);
 
         if (dropMainGun)
@@ -75,7 +68,6 @@ public class WeaponManager : MonoBehaviour
             weapons[1] = new WeaponInfo(cfg.id, cfg.magazineCapacity, cfg.magazineCapacity * 2);
         }
 
-        // 默认握持槽位：有主武器持主武器，否则持副武器
         activeWeaponIndex = weapons[1] != null ? 1 : 0;
         reloading = false;
         firingTime = 0;
@@ -98,7 +90,7 @@ public class WeaponManager : MonoBehaviour
             int weaponId = weapons[activeWeaponIndex].id;
             firingTime = Mathf.Min(1 / WeaponDic.instance.weaponDic[weaponId].shootSpeed, 1);
 
-            PlayerStateInfo state = NetworkManager.playerStateInfos[GetComponent<PlayerState>().uid.ToString()];
+            PlayerStateInfo state = NetworkManager.players[GetComponent<PlayerState>().uid].stateInfo;
 
             Quaternion playerRotation = Quaternion.Euler(0, state.rotationY, 0);
             Quaternion cameraRotation = Quaternion.Euler(state.rotationX, 0, 0);
@@ -122,13 +114,8 @@ public class WeaponManager : MonoBehaviour
             RaycastHit[] hits = Physics.RaycastAll(center, fireDirection, 100f, ~(1 << layer));
             Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
-            // 子弹最远落点（命中链结束后用于广播 PlayerFire 的 hitPoint）
             Vector3 hitPoint = center + fireDirection * 100f;
 
-            // 命中链处理：按距离顺序遍历
-            //  - 是自己的 BodyCollider → 跳过（不更新 hitPoint，子弹假装没被自己挡住）
-            //  - 是敌人的 BodyCollider → 扣血并停止（FPS 标准：子弹不穿透敌人）
-            //  - 其它（墙、地） → 落点定在该 hit，停止
             foreach (RaycastHit hit in hits)
             {
                 BodyCollider bodyCollider = hit.collider.GetComponent<BodyCollider>();

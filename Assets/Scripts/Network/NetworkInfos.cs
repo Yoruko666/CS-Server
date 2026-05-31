@@ -3,7 +3,8 @@ using UnityEngine;
 public enum MessageType
 {
     PingPong, JoinRoom, Connect, Ready, Start, GameProgress, 
-    InputInfo, AllPlayersInfo, Fire, Reload, SwitchWeapon, PurchaseWeapon, AcquireWeapon, Kill, Hit, RoundEnd
+    InputInfo, AllPlayersInfo, Fire, Reload, SwitchWeapon, PurchaseWeapon, AcquireWeapon, Kill, Hit, RoundEnd,
+    Chat
 }
 
 public class PlayerConnect
@@ -211,6 +212,24 @@ public class RoundEnd
     public RoundEnd(int winTeam)
     {
         this.winTeam = winTeam;
+    }
+}
+
+public enum ChatArea
+{
+    Team, All
+}
+
+public class Chat
+{
+    public int uid;
+    public ChatArea area;
+    public string text;
+    public Chat(int uid, ChatArea area, string text)
+    {
+        this.uid = uid;
+        this.area = area;
+        this.text = text;
     }
 }
 

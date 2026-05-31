@@ -22,21 +22,11 @@ public class NetworkManager : MonoBehaviour
     public static int playerNum = 0;
     public static bool serverReady = false;
 
-    public static ConcurrentDictionary<string, IPEndPoint> clientsDic = new();
+    public static ConcurrentDictionary<int, PlayerEntity> players = new();
 
     private static ConcurrentQueue<(MessageType, string)> messageList = new();
-    public static ConcurrentDictionary<string, GameObject> playerPool = new();
-    public static ConcurrentDictionary<int, GameObject> slotPlayerPool = new();
-    public static ConcurrentDictionary<string, PlayerStateInfo> playerStateInfos = new();
 
-    public static HashSet<string> playerReadyList = new();
-    public static HashSet<string> playerDieList = new();
-
-    // 接收线程的 running flag：OnApplicationQuit 时翻为 false，
-    // 让 ReceiveMessage 线程能干净退出，而不是依赖 Receive 抛 ObjectDisposedException 跳出。
     private static volatile bool running = true;
-
-    // 消息处理器注册表
     private Dictionary<MessageType, Action<string>> handlers;
 
     private void Awake()
@@ -55,6 +45,7 @@ public class NetworkManager : MonoBehaviour
             { MessageType.SwitchWeapon,    OnSwitchWeapon   },
             { MessageType.PurchaseWeapon,  OnPurchaseWeapon },
             { MessageType.PingPong,        OnPingPong       },
+            { MessageType.Chat,            OnChat           },
         };
     }
 
@@ -76,19 +67,20 @@ public class NetworkManager : MonoBehaviour
                     int[] j2id = new int[] { 0, 3, 1, 4, 2, 5 }; 
                     for(int j = 0; j < playerNum; j++)
                     {
-                        string uidStr = playerList[j];
-                        int uid = int.Parse(uidStr);
-                        playerStateInfos.TryAdd(uidStr, new PlayerStateInfo());
-                        playerStateInfos[uidStr].Initialize(uid);
+                        int uid = int.Parse(playerList[j]);
                         int slot = j2id[j];
-                        playerStateInfos[uidStr].slot = slot;
-                        playerStateInfos[uidStr].team = slot < 3 ? 0 : 1;
+                        int team = slot < 3 ? 0 : 1;
+
                         GameObject player = Instantiate(Resources.Load<GameObject>("Prefabs/Character"));
                         player.GetComponent<PlayerController>().Initialize(slot, uid);
                         player.GetComponent<PlayerState>().Initialize(slot, uid);
                         player.GetComponent<WeaponManager>().uid = uid;
-                        playerPool.TryAdd(uidStr, player);
-                        slotPlayerPool.TryAdd(slot, player);
+
+                        var entity = PlayerEntity.Create(player, uid, slot, team);
+                        entity.stateInfo.Initialize(uid);
+                        entity.stateInfo.slot = slot;
+                        entity.stateInfo.team = team;
+                        players.TryAdd(uid, entity);
                     }
                     break;
             }
@@ -128,68 +120,66 @@ public class NetworkManager : MonoBehaviour
     /// <summary>每 tick 模拟所有玩家 + 广播全员状态</summary>
     private void TickSimulation()
     {
-        foreach (string uidStr in playerStateInfos.Keys)
+        foreach (int uid in players.Keys)
         {
-            if (!playerPool.TryGetValue(uidStr, out var player) || player == null) continue;
-            player.GetComponent<PlayerState>().UpdateStateInfo(playerStateInfos[uidStr]);
-            if (playerDieList.Contains(uidStr)) continue;
+            if (!players.TryGetValue(uid, out var entity) || entity.root == null) continue;
+            entity.state.UpdateStateInfo(entity.stateInfo);
+            if (entity.isDead) continue;
 
-            var playerController = player.GetComponent<PlayerController>();
-            PlayerInputInfo inputInfo = playerController.GetInputInfo();
-            playerController.ProcessInput(inputInfo);
-            playerController.UpdateStateInfo(playerStateInfos[uidStr]);
+            PlayerInputInfo inputInfo = entity.controller.GetInputInfo();
+            entity.controller.ProcessInput(inputInfo);
+            entity.controller.UpdateStateInfo(entity.stateInfo);
 
-            var weaponManager = player.GetComponent<WeaponManager>();
-            weaponManager.HandleTick();
-            weaponManager.UpdateStateInfo(playerStateInfos[uidStr]);
+            entity.weapon.HandleTick();
+            entity.weapon.UpdateStateInfo(entity.stateInfo);
         }
-        List<PlayerStateInfo> allPlayersInfo = playerStateInfos.Values.ToList();
+        List<PlayerStateInfo> allPlayersInfo = players.Values.Select(e => e.stateInfo).ToList();
         Broadcast(MessageType.AllPlayersInfo, allPlayersInfo);
     }
-
-    // ============ Message Handlers ============
 
     private void OnReady(string msg)
     {
         var playerReady = JsonConvert.DeserializeObject<PlayerReady>(msg);
-        string uidStr = playerReady.uid.ToString();
-        if (!playerReadyList.Contains(uidStr))
-            playerReadyList.Add(uidStr);
+        if (players.TryGetValue(playerReady.uid, out var entity))
+            entity.isReady = true;
     }
 
     private void OnInputInfo(string msg)
     {
         var inputInfo = JsonConvert.DeserializeObject<PlayerInputInfo>(msg);
-        string uidStr = inputInfo.uid.ToString();
-        if (playerDieList.Contains(uidStr)) return;
-        if (playerPool.TryGetValue(uidStr, out var player) && player != null)
-            player.GetComponent<PlayerController>().ApplyInput(inputInfo);
+        if (players.TryGetValue(inputInfo.uid, out var entity))
+        {
+            if (entity.isDead) return;
+            entity.controller.ApplyInput(inputInfo);
+        }
     }
 
     private void OnFire(string msg)
     {
         var playerFire = JsonConvert.DeserializeObject<PlayerFire>(msg);
-        string uidStr = playerFire.uid.ToString();
-        if (playerDieList.Contains(uidStr)) return;
-        if (playerPool.TryGetValue(uidStr, out var player) && player != null)
-            player.GetComponent<WeaponManager>().Fire(playerFire.seed);
+        if (players.TryGetValue(playerFire.uid, out var entity))
+        {
+            if (entity.isDead) return;
+            entity.weapon.Fire(playerFire.seed);
+        }
     }
 
     private void OnReload(string msg)
     {
         var playerReload = JsonConvert.DeserializeObject<PlayerReload>(msg);
-        string uidStr = playerReload.uid.ToString();
-        if (!playerDieList.Contains(uidStr)
-            && playerPool.TryGetValue(uidStr, out var player) && player != null)
-            player.GetComponent<WeaponManager>().StartReload();
+        if (players.TryGetValue(playerReload.uid, out var entity))
+        {
+            if (!entity.isDead)
+                entity.weapon.StartReload();
+        }
         Broadcast(MessageType.Reload, playerReload);
     }
 
     private void OnSwitchWeapon(string msg)
     {
         var playerSwitchWeapon = JsonConvert.DeserializeObject<PlayerSwitchWeapon>(msg);
-        if (playerPool.TryGetValue(playerSwitchWeapon.uid.ToString(), out var player) && player != null)
-            player.GetComponent<WeaponManager>().SwitchWeapon(playerSwitchWeapon.index);
+        if (players.TryGetValue(playerSwitchWeapon.uid, out var entity))
+            entity.weapon.SwitchWeapon(playerSwitchWeapon.index);
         Broadcast(MessageType.SwitchWeapon, playerSwitchWeapon);
     }
 
@@ -197,32 +187,39 @@ public class NetworkManager : MonoBehaviour
     {
         if (MatchManager.instance.currentRoundState != RoundState.Preparation) return;
         var playerPurchaseWeapon = JsonConvert.DeserializeObject<PlayerPurchaseWeapon>(msg);
-        if (!playerPool.TryGetValue(playerPurchaseWeapon.uid.ToString(), out var player) || player == null) return;
-        var playerState = player.GetComponent<PlayerState>();
-        if (playerState == null) return;
+        if (!players.TryGetValue(playerPurchaseWeapon.uid, out var entity) || entity.state == null) return;
 
         WeaponConfig weaponConfig = WeaponDic.instance.weaponDic[playerPurchaseWeapon.id];
-        if (playerState.gold < weaponConfig.price) return;
+        if (entity.state.gold < weaponConfig.price) return;
 
-        // 扣权威金币（下一 tick 通过 UpdateStateInfo 同步到客户端）
-        playerState.gold -= weaponConfig.price;
+        entity.state.gold -= weaponConfig.price;
+        entity.weapon.AcquireWeapon(weaponConfig.id, weaponConfig.magazineCapacity, weaponConfig.magazineCapacity * 2);
 
-        // 服务端武器组件装备
-        var weaponManager = player.GetComponent<WeaponManager>();
-        weaponManager.AcquireWeapon(weaponConfig.id, weaponConfig.magazineCapacity, weaponConfig.magazineCapacity * 2);
-
-        // 统一通过 AcquireWeapon 广播给所有客户端（包括购买者自己）。
-        // 购买者本地不再做任何预测，等这条权威广播到达再装备武器。
         var playerAcquireWeapon = new PlayerAcquireWeapon(playerPurchaseWeapon.uid, weaponConfig.id);
         Broadcast(MessageType.AcquireWeapon, playerAcquireWeapon);
+    }
+
+    private void OnChat(string msg)
+    {
+        var chat = JsonConvert.DeserializeObject<Chat>(msg);
+        if (!players.TryGetValue(chat.uid, out var sender)) return;
+
+        foreach (int uid in players.Keys)
+        {
+            if (!players.TryGetValue(uid, out var target)) continue;
+            if (chat.area == ChatArea.All ||
+                chat.area == ChatArea.Team && target.team == sender.team)
+            {
+                Send(uid, MessageType.Chat, chat);
+            }
+        }
     }
 
     private void OnPingPong(string msg)
     {
         var pingPong = JsonConvert.DeserializeObject<PingPong>(msg);
-        string uidStr = pingPong.uid.ToString();
-        if (clientsDic.ContainsKey(uidStr))
-            Send(uidStr, MessageType.PingPong, pingPong);
+        if (players.TryGetValue(pingPong.uid, out var entity) && entity.endpoint != null)
+            Send(pingPong.uid, MessageType.PingPong, pingPong);
     }
 
     private void OnApplicationQuit()
@@ -258,18 +255,15 @@ public class NetworkManager : MonoBehaviour
                 string str = Encoding.UTF8.GetString(data, 8, data.Length - 8);
                 messageList.Enqueue((type, str));
 
-                // 首次 Ready 消息时登记 endpoint。
-                // 必须 clone IPEndPoint，因为 udpServer.Receive(ref remote) 会复用同一个引用。
                 if (type == MessageType.Ready)
                 {
                     PlayerReady playerReady = JsonConvert.DeserializeObject<PlayerReady>(str);
-                    if (playerReady != null)
+                    if (playerReady != null && players.TryGetValue(playerReady.uid, out var entity))
                     {
-                        string uidStr = playerReady.uid.ToString();
-                        if (!clientsDic.ContainsKey(uidStr))
+                        if (entity.endpoint == null)
                         {
                             var endpointCopy = new IPEndPoint(remote.Address, remote.Port);
-                            clientsDic[uidStr] = endpointCopy;
+                            entity.endpoint = endpointCopy;
                         }
                     }
                 }
@@ -289,8 +283,9 @@ public class NetworkManager : MonoBehaviour
         }
     }
 
-    public static void Send<T>(string uid, MessageType type, T data)
+    public static void Send<T>(int uid, MessageType type, T data)
     {
+        if (!players.TryGetValue(uid, out var entity) || entity.endpoint == null) return;
         try
         {
             byte[] typeBytes = BitConverter.GetBytes((int)type);
@@ -301,7 +296,7 @@ public class NetworkManager : MonoBehaviour
             Buffer.BlockCopy(lengthBytes, 0, sendBuffer, 0, 4);
             Buffer.BlockCopy(typeBytes, 0, sendBuffer, 4, 4);
             Buffer.BlockCopy(dataBytes, 0, sendBuffer, 8, dataBytes.Length);
-            udpServer.Send(sendBuffer, sendBuffer.Length, clientsDic[uid]);
+            udpServer.Send(sendBuffer, sendBuffer.Length, entity.endpoint);
         }
         catch (JsonSerializationException ex)
         {
@@ -319,7 +314,7 @@ public class NetworkManager : MonoBehaviour
 
     public static void Broadcast<T>(MessageType type, T data)
     {
-        foreach (string uid in clientsDic.Keys)
+        foreach (int uid in players.Keys)
             Send(uid, type, data);
     }
 }

@@ -213,6 +213,6 @@ public class PlayerController : MonoBehaviour
     public void GetHit(Vector3 position)
     {
         var hit = new Hit(playerInfo.uid, position);
-        NetworkManager.Send(playerInfo.uid.ToString(), MessageType.Hit, hit);
+        NetworkManager.Send(playerInfo.uid, MessageType.Hit, hit);
     }
 }

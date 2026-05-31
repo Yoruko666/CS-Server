@@ -53,7 +53,7 @@ public class MatchManager : MonoBehaviour
     {
         if (!gameStart)
         {
-            if (NetworkManager.playerReadyList.Count == NetworkManager.playerNum && NetworkManager.serverReady)
+            if (NetworkManager.players.Values.All(e => e.isReady) && NetworkManager.serverReady)
                 StartGame();
             else return;
         }
@@ -95,7 +95,7 @@ public class MatchManager : MonoBehaviour
         gameStart = true;
         InitializeFirstRound();
         SwitchProgress(RoundState.Preparation);
-        List<PlayerStateInfo> allPlayersInfo = NetworkManager.playerStateInfos.Values.ToList();
+        List<PlayerStateInfo> allPlayersInfo = NetworkManager.players.Values.Select(e => e.stateInfo).ToList();
         NetworkManager.Broadcast(MessageType.Start, allPlayersInfo);
     }
 
@@ -120,16 +120,15 @@ public class MatchManager : MonoBehaviour
     {
         aliveNum[0] = NetworkManager.playerNum / 2;
         aliveNum[1] = NetworkManager.playerNum / 2;
-        foreach (string uidStr in NetworkManager.playerStateInfos.Keys)
+        foreach (var entity in NetworkManager.players.Values)
         {
-            if (!NetworkManager.playerPool.TryGetValue(uidStr, out var player) || player == null) continue;
-            player.SetActive(true);
-            player.GetComponent<PlayerController>().Reborn();
+            if (entity.root == null) continue;
+            entity.root.SetActive(true);
+            entity.controller.Reborn();
             // 首回合：所有人都没有主武器，按 dropMainGun=true 走（其实初始 weapons[1]=null，效果一样）
-            player.GetComponent<WeaponManager>().InitializeForRound(dropMainGun: true);
-            player.GetComponent<PlayerState>().Reborn();
+            entity.weapon.InitializeForRound(dropMainGun: true);
+            entity.state.Reborn();
         }
-        NetworkManager.playerDieList.Clear();
     }
 
     /// <summary>
@@ -140,28 +139,26 @@ public class MatchManager : MonoBehaviour
         aliveNum[0] = NetworkManager.playerNum / 2;
         aliveNum[1] = NetworkManager.playerNum / 2;
 
-        // 上回合的死亡名单。playerDieList 在最后才 Clear，所以这里能安全读到。
-        var diedThisRound = NetworkManager.playerDieList;
-
-        foreach (string uidStr in NetworkManager.playerStateInfos.Keys)
+        foreach (var entity in NetworkManager.players.Values)
         {
-            if (!NetworkManager.playerPool.TryGetValue(uidStr, out var player) || player == null) continue;
+            if (entity.root == null) continue;
 
-            bool died = diedThisRound.Contains(uidStr);
+            bool died = entity.isDead;
 
             // 1) 武器：死了丢主武器，活着保留并补满弹药
-            player.GetComponent<WeaponManager>().InitializeForRound(dropMainGun: died);
+            entity.weapon.InitializeForRound(dropMainGun: died);
 
             // 2) 经济：发本回合基础金币 + 上回合累计击杀奖励
-            player.GetComponent<PlayerState>().GrantRoundIncome();
+            entity.state.GrantRoundIncome();
 
             // 3) 复活 + 重置 HP / 移动状态
-            player.SetActive(true);
-            player.GetComponent<PlayerController>().Reborn();
-            player.GetComponent<PlayerState>().Reborn();
-        }
+            entity.root.SetActive(true);
+            entity.controller.Reborn();
+            entity.state.Reborn();
 
-        NetworkManager.playerDieList.Clear();
+            // 4) 清除死亡标记
+            entity.isDead = false;
+        }
     }
 }
 
