@@ -6,7 +6,7 @@ public class PlayerState : MonoBehaviour
     [HideInInspector] public int uid;
     [HideInInspector] public int slot;
     [HideInInspector] public int team;
-    [HideInInspector] public int HP, armature;
+    [HideInInspector] public int HP, armor;
     [HideInInspector] public int gold;
     [HideInInspector] public bool isDie;
 
@@ -17,7 +17,7 @@ public class PlayerState : MonoBehaviour
     void Start()
     {
         HP = 100;
-        armature = 0;
+        armor = 0;
     }
 
     public void GetDamaged(int attackerUid, int damage, bool shotHead, int weaponId)
@@ -29,14 +29,14 @@ public class PlayerState : MonoBehaviour
         damageContributors.Add(attackerUid);
 
         // 护甲先吸收，剩余伤害扣 HP
-        if (damage <= armature)
+        if (damage <= armor)
         {
-            armature -= damage;
+            armor -= damage;
         }
         else
         {
-            int remaining = damage - armature;
-            armature = 0;
+            int remaining = damage - armor;
+            armor = 0;
             HP -= remaining;
         }
         HP = Mathf.Max(HP, 0);
@@ -88,7 +88,7 @@ public class PlayerState : MonoBehaviour
     public void Reborn()
     {
         HP = 100;
-        armature = 0;
+        armor = 0;
         isDie = false;
         damageContributors.Clear(); 
     }
@@ -102,7 +102,7 @@ public class PlayerState : MonoBehaviour
     public void UpdateStateInfo(PlayerStateInfo state)
     {
         state.HP = HP;
-        state.armature = armature;
+        state.armor = armor;
         state.gold = gold;
     }
 }

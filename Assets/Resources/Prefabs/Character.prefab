@@ -325,7 +325,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   uid: 0
   HP: 0
-  armature: 0
+  armor: 0
 --- !u!114 &7422323391999472437
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -2,10 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-public class MatchManager : MonoBehaviour
+public class MatchManager : SingletonMono<MatchManager>
 {
-    public static MatchManager instance;
-
     // ============ 经济参数 ============
     /// <summary>开局给每个玩家的初始金币。</summary>
     public const int INITIAL_GOLD = 300;
@@ -28,15 +26,8 @@ public class MatchManager : MonoBehaviour
 
     public MapConfig mapConfig;
 
-    private void Awake()
+    protected override void OnSingletonAwake()
     {
-        if (instance == null)
-        {
-            instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
-        else Destroy(gameObject);
-
         round_time = new();
         round_time.Add(RoundState.Preparation, 5f);
         round_time.Add(RoundState.InProgress, 180f);

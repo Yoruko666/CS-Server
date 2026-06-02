@@ -26,7 +26,7 @@ public class PlayerStateInfo
     public float speed, velocity;
     public float height;
     public bool isCrouch;
-    public int HP, armature, gold;
+    public int HP, armor, gold;
     public WeaponInfo[] weapons = new WeaponInfo[2];
     public int activeWeaponIndex;
     public PlayerStateInfo() { }

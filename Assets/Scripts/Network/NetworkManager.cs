@@ -24,10 +24,17 @@ public class NetworkManager : MonoBehaviour
 
     public static ConcurrentDictionary<int, PlayerEntity> players = new();
 
-    private static ConcurrentQueue<(MessageType, string)> messageList = new();
+    // 消息队列携带 endpoint：OnConnect 需要它来登记客户端地址；
+    // 其他 handler 不关心，参数原样接收忽略即可。
+    private static ConcurrentQueue<(MessageType type, string body, IPEndPoint remote)> messageList = new();
 
     private static volatile bool running = true;
-    private Dictionary<MessageType, Action<string>> handlers;
+    private Dictionary<MessageType, Action<string, IPEndPoint>> handlers;
+
+    /// <summary>
+    /// TickSimulation 广播复用的 list，避免每 tick (128Hz) 都 ToList() 新建。
+    /// </summary>
+    private readonly List<PlayerStateInfo> _broadcastList = new();
 
     private void Awake()
     {
@@ -36,8 +43,9 @@ public class NetworkManager : MonoBehaviour
 
     private void RegisterHandlers()
     {
-        handlers = new Dictionary<MessageType, Action<string>>
+        handlers = new Dictionary<MessageType, Action<string, IPEndPoint>>
         {
+            { MessageType.Connect,         OnConnect        },
             { MessageType.Ready,           OnReady          },
             { MessageType.InputInfo,       OnInputInfo      },
             { MessageType.Fire,            OnFire           },
@@ -98,14 +106,14 @@ public class NetworkManager : MonoBehaviour
     {
         while (messageList.TryDequeue(out var data))
         {
-            if (handlers.TryGetValue(data.Item1, out var handler))
+            if (handlers.TryGetValue(data.type, out var handler))
             {
-                try { handler(data.Item2); }
+                try { handler(data.body, data.remote); }
                 catch (Exception ex) { Debug.LogException(ex); }
             }
             else
             {
-                Debug.LogWarning($"No handler for message type: {data.Item1}");
+                Debug.LogWarning($"No handler for message type: {data.type}");
             }
         }
 
@@ -133,18 +141,36 @@ public class NetworkManager : MonoBehaviour
             entity.weapon.HandleTick();
             entity.weapon.UpdateStateInfo(entity.stateInfo);
         }
-        List<PlayerStateInfo> allPlayersInfo = players.Values.Select(e => e.stateInfo).ToList();
-        Broadcast(MessageType.AllPlayersInfo, allPlayersInfo);
+
+        // 复用 _broadcastList，避免每 tick 新建 List 与 LINQ ToList() 的 GC 开销
+        _broadcastList.Clear();
+        foreach (var entity in players.Values) _broadcastList.Add(entity.stateInfo);
+        Broadcast(MessageType.AllPlayersInfo, _broadcastList);
     }
 
-    private void OnReady(string msg)
+    /// <summary>
+    /// 客户端连入：登记 endpoint，后续 Send 才能找到地址。
+    /// 由客户端在 NetworkManager.Start 中 Send(MessageType.Connect, ...) 触发。
+    /// </summary>
+    private void OnConnect(string msg, IPEndPoint remote)
+    {
+        var connect = JsonConvert.DeserializeObject<PlayerConnect>(msg);
+        if (connect == null || !players.TryGetValue(connect.uid, out var entity)) return;
+        if (entity.endpoint == null)
+        {
+            entity.endpoint = new IPEndPoint(remote.Address, remote.Port);
+            Debug.Log($"[NetworkManager] Player {connect.uid} endpoint registered: {entity.endpoint}");
+        }
+    }
+
+    private void OnReady(string msg, IPEndPoint _)
     {
         var playerReady = JsonConvert.DeserializeObject<PlayerReady>(msg);
         if (players.TryGetValue(playerReady.uid, out var entity))
             entity.isReady = true;
     }
 
-    private void OnInputInfo(string msg)
+    private void OnInputInfo(string msg, IPEndPoint _)
     {
         var inputInfo = JsonConvert.DeserializeObject<PlayerInputInfo>(msg);
         if (players.TryGetValue(inputInfo.uid, out var entity))
@@ -154,7 +180,7 @@ public class NetworkManager : MonoBehaviour
         }
     }
 
-    private void OnFire(string msg)
+    private void OnFire(string msg, IPEndPoint _)
     {
         var playerFire = JsonConvert.DeserializeObject<PlayerFire>(msg);
         if (players.TryGetValue(playerFire.uid, out var entity))
@@ -164,7 +190,7 @@ public class NetworkManager : MonoBehaviour
         }
     }
 
-    private void OnReload(string msg)
+    private void OnReload(string msg, IPEndPoint _)
     {
         var playerReload = JsonConvert.DeserializeObject<PlayerReload>(msg);
         if (players.TryGetValue(playerReload.uid, out var entity))
@@ -175,7 +201,7 @@ public class NetworkManager : MonoBehaviour
         Broadcast(MessageType.Reload, playerReload);
     }
 
-    private void OnSwitchWeapon(string msg)
+    private void OnSwitchWeapon(string msg, IPEndPoint _)
     {
         var playerSwitchWeapon = JsonConvert.DeserializeObject<PlayerSwitchWeapon>(msg);
         if (players.TryGetValue(playerSwitchWeapon.uid, out var entity))
@@ -183,7 +209,7 @@ public class NetworkManager : MonoBehaviour
         Broadcast(MessageType.SwitchWeapon, playerSwitchWeapon);
     }
 
-    private void OnPurchaseWeapon(string msg)
+    private void OnPurchaseWeapon(string msg, IPEndPoint _)
     {
         if (MatchManager.instance.currentRoundState != RoundState.Preparation) return;
         var playerPurchaseWeapon = JsonConvert.DeserializeObject<PlayerPurchaseWeapon>(msg);
@@ -199,7 +225,7 @@ public class NetworkManager : MonoBehaviour
         Broadcast(MessageType.AcquireWeapon, playerAcquireWeapon);
     }
 
-    private void OnChat(string msg)
+    private void OnChat(string msg, IPEndPoint _)
     {
         var chat = JsonConvert.DeserializeObject<Chat>(msg);
         if (!players.TryGetValue(chat.uid, out var sender)) return;
@@ -215,7 +241,7 @@ public class NetworkManager : MonoBehaviour
         }
     }
 
-    private void OnPingPong(string msg)
+    private void OnPingPong(string msg, IPEndPoint _)
     {
         var pingPong = JsonConvert.DeserializeObject<PingPong>(msg);
         if (players.TryGetValue(pingPong.uid, out var entity) && entity.endpoint != null)
@@ -251,22 +277,12 @@ public class NetworkManager : MonoBehaviour
                 }
 
                 MessageType type = (MessageType)BitConverter.ToInt32(data, 4);
-
                 string str = Encoding.UTF8.GetString(data, 8, data.Length - 8);
-                messageList.Enqueue((type, str));
 
-                if (type == MessageType.Ready)
-                {
-                    PlayerReady playerReady = JsonConvert.DeserializeObject<PlayerReady>(str);
-                    if (playerReady != null && players.TryGetValue(playerReady.uid, out var entity))
-                    {
-                        if (entity.endpoint == null)
-                        {
-                            var endpointCopy = new IPEndPoint(remote.Address, remote.Port);
-                            entity.endpoint = endpointCopy;
-                        }
-                    }
-                }
+                // 收线程只负责拆包入队 + 拷贝 endpoint。endpoint 留给主线程
+                // OnConnect handler 处理，避免在收线程里改业务状态。
+                var endpointCopy = new IPEndPoint(remote.Address, remote.Port);
+                messageList.Enqueue((type, str, endpointCopy));
             }
             catch (ObjectDisposedException)
             {
@@ -288,14 +304,7 @@ public class NetworkManager : MonoBehaviour
         if (!players.TryGetValue(uid, out var entity) || entity.endpoint == null) return;
         try
         {
-            byte[] typeBytes = BitConverter.GetBytes((int)type);
-            string dataStr = JsonConvert.SerializeObject(data);
-            byte[] dataBytes = Encoding.UTF8.GetBytes(dataStr);
-            byte[] lengthBytes = BitConverter.GetBytes(4 + dataBytes.Length);
-            byte[] sendBuffer = new byte[8 + dataBytes.Length];
-            Buffer.BlockCopy(lengthBytes, 0, sendBuffer, 0, 4);
-            Buffer.BlockCopy(typeBytes, 0, sendBuffer, 4, 4);
-            Buffer.BlockCopy(dataBytes, 0, sendBuffer, 8, dataBytes.Length);
+            byte[] sendBuffer = PackMessage(type, data);
             udpServer.Send(sendBuffer, sendBuffer.Length, entity.endpoint);
         }
         catch (JsonSerializationException ex)
@@ -314,7 +323,31 @@ public class NetworkManager : MonoBehaviour
 
     public static void Broadcast<T>(MessageType type, T data)
     {
-        foreach (int uid in players.Keys)
-            Send(uid, type, data);
+        // 只序列化一次，所有玩家共享同一份字节缓冲
+        byte[] sendBuffer;
+        try { sendBuffer = PackMessage(type, data); }
+        catch (Exception ex) { Debug.Log($"Broadcast pack error: {ex.Message}"); return; }
+
+        foreach (var entity in players.Values)
+        {
+            if (entity.endpoint == null) continue;
+            try { udpServer.Send(sendBuffer, sendBuffer.Length, entity.endpoint); }
+            catch (SocketException ex) { Debug.Log($"UDP send error to {entity.uid}: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>
+    /// 把 (type, data) 打包为 [length(4)][type(4)][json bytes] 的 UDP payload。
+    /// 一次分配 sendBuffer，免掉中间多份 byte[] 与 BlockCopy 调用。
+    /// </summary>
+    private static byte[] PackMessage<T>(MessageType type, T data)
+    {
+        string dataStr = JsonConvert.SerializeObject(data);
+        int dataLen = Encoding.UTF8.GetByteCount(dataStr);
+        byte[] sendBuffer = new byte[8 + dataLen];
+        BitConverter.TryWriteBytes(sendBuffer.AsSpan(0, 4), 4 + dataLen);
+        BitConverter.TryWriteBytes(sendBuffer.AsSpan(4, 4), (int)type);
+        Encoding.UTF8.GetBytes(dataStr, 0, dataStr.Length, sendBuffer, 8);
+        return sendBuffer;
     }
 }

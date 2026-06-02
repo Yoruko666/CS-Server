@@ -45,11 +45,6 @@ public class PlayerController : MonoBehaviour
         characterController = GetComponent<CharacterController>();
     }
 
-    private void LateUpdate()
-    {
-        spine.Rotate(0, 0, rotationX, Space.Self);
-    }
-
     public void Initialize(int slot, int uid)
     {
         this.slot = slot;
@@ -77,6 +72,11 @@ public class PlayerController : MonoBehaviour
         isCrouch = false; 
         isWalk = false; 
         staggerTimer = 0f;       // 重生清空踉跄
+        // 站立默认身高（与客户端一致）。漏掉这一行会导致 height=0，重生后 ProcessInput
+        // 里通过 MoveTowards 慢慢长到 1.6m，期间 CharacterController 高度异常。
+        height = 1.6f;
+        characterController.height = height;
+        characterController.center = new Vector3(0, height / 2, 0);
     }
 
     // 服务端权威：限制单 tick 输入合理范围，防止异常客户端瞬移视角 / 加速移动
@@ -102,15 +102,7 @@ public class PlayerController : MonoBehaviour
 
     public PlayerStateInfo GetPlayerStateInfo()
     {
-        playerInfo.tick = latestTick;
-        playerInfo.positionX = transform.position.x;
-        playerInfo.positionY = transform.position.y;
-        playerInfo.positionZ = transform.position.z;
-        playerInfo.rotationY = rotationY;
-        playerInfo.rotationX = rotationX;
-        playerInfo.speed = speed;
-        playerInfo.velocity = velocity;
-        playerInfo.isCrouch = isCrouch;
+        UpdateStateInfo(playerInfo);
         return playerInfo;
     }
 
